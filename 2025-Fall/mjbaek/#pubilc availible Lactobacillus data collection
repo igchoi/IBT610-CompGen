@@ -1,0 +1,78 @@
+#pubilc availible Lactobacillus data collection
+# Lactobacillus 2020 재분류 계열 시퀀스 수집
+
+이 프로젝트는 2020년 재분류 기준 Lactobacillus 속 계열의 유전자/단백질/전체 시퀀스 수를  
+NCBI, UniProt, ENA 데이터베이스에서 수집하고 중복 제거 후 고유 accession 수를 계산한 결과를 제공합니다.
+
+## Jupyter Notebook 코드
+
+```python
+#필수 라이브러리
+from Bio import Entrez
+import pandas as pd
+import requests
+from tqdm import tqdm
+import time
+
+# NCBI 접근용 이메일
+Entrez.email = "qoralswl@gmail.com" 
+
+# 2020 재분류 기준 Lactobacillus 신속 목록(2020년도 기준으로 다시 분류 된 25개의 속들)
+genus_list = [
+    "Lactobacillus","Lacticaseibacillus","Lactiplantibacillus","Limosilactobacillus","Levilactobacillus",
+    "Ligilactobacillus","Fructilactobacillus","Companilactobacillus","Loigolactobacillus","Schleiferilactobacillus",
+    "Lapidilactobacillus","Acetilactobacillus","Apilactobacillus","Furfurilactobacillus","Dellaglioa","Holzapfelia",
+    "Agrilactobacillus","Amylolactobacillus","Bombilactobacillus","Paucilactobacillus","Liquorilactobacillus",
+    "Lentilactobacillus","Latilactobacillus","Secundilactobacillus","Periweissella","Convivina"
+]
+
+# NCBI, UniProt, ENA 데이터 수집 함수
+def fetch_ncbi_gene(genus):
+    handle = Entrez.esearch(db="nucleotide", term=f"{genus}[Organism]", retmax=100000)
+    record = Entrez.read(handle)
+    return set(record["IdList"])
+
+def fetch_uniprot(genus):
+    url = f"https://rest.uniprot.org/uniprotkb/search?query=genus:{genus}&fields=accession&format=json&size=500"
+    response = requests.get(url)
+    data = response.json()
+    return set([entry['primaryAccession'] for entry in data.get('results', [])])
+
+def fetch_ena(genus):
+    url = f"https://www.ebi.ac.uk/ena/portal/api/search?result=sequence&query={genus}&limit=100000&fields=accession&format=tsv"
+    response = requests.get(url)
+    return set(response.text.splitlines())
+
+# 전체 수집 및 통계 계산(각 데이터간의 중복 제거함)
+results = []
+all_accessions = set()
+
+for genus in tqdm(genus_list, desc="Fetching Lactobacillus genera"):
+    ncbi = fetch_ncbi_gene(genus)
+    uniprot = fetch_uniprot(genus)
+    ena = fetch_ena(genus)
+    
+    merged = ncbi | uniprot | ena
+    results.append({
+        "Genus": genus,
+        "NCBI_genes": len(ncbi),
+        "UniProt_proteins": len(uniprot),
+        "ENA_sequences": len(ena),
+        "Unique_total": len(merged)
+    })
+    all_accessions |= merged
+
+df = pd.DataFrame(results)
+df.loc["Total"] = [
+    "All combined",
+    df["NCBI_genes"].sum(),
+    df["UniProt_proteins"].sum(),
+    df["ENA_sequences"].sum(),
+    len(all_accessions)
+]
+
+df.to_csv("Lactobacillus_2020_summary.csv", index=False)
+print("CSV 저장 완료: Lactobacillus_2020_summary.csv")
+
+
+
